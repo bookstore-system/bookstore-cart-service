@@ -5,8 +5,8 @@ if (-not $tag) {
     exit
 }
 
-docker build -t truongikpk/bookstore-api-gateway:$tag .
-docker push truongikpk/bookstore-api-gateway:$tag
+docker build -t truongikpk/bookstore-cart-service:$tag .
+docker push truongikpk/bookstore-cart-service:$tag
 
-# .\push.ps1 v1
+# .\push.ps1 v1.0.0
 # ./mvnw compile
