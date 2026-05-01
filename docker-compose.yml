@@ -1,8 +1,24 @@
 version: '3.8'
 
 services:
+  cart-redis:
+    image: redis:7-alpine
+    container_name: cart-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - cart_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bookstore-network
+
   cart-service:
-    build: 
+    build:
       context: .
       target: build
     container_name: cart-service
@@ -14,9 +30,18 @@ services:
     command: mvn spring-boot:run -Dspring-boot.run.profiles=docker
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      REDIS_HOST: cart-redis
+      REDIS_PORT: 6379
+      BOOK_SERVICE_URL: http://book-service:8080
+    depends_on:
+      cart-redis:
+        condition: service_healthy
     networks:
       - bookstore-network
 
 networks:
   bookstore-network:
     external: true
+
+volumes:
+  cart_redis_data:

@@ -6,12 +6,12 @@ spring:
     name: bookstore-cart-service
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:cart-redis}
       port: ${REDIS_PORT:6379}
       timeout: 3000
 
 book-service:
-  url: ${BOOK_SERVICE_URL:http://localhost:8082}
+  url: ${BOOK_SERVICE_URL:http://book-service:8080}
 
 cart:
   ttl-days: ${CART_TTL_DAYS:7}
@@ -19,5 +19,4 @@ cart:
 
 logging:
   level:
-    com.notfound.cartservice: DEBUG
-    org.springframework.cloud.openfeign: INFO
+    com.notfound.cartservice: INFO

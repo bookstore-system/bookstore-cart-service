@@ -15,11 +15,32 @@ spec:
         app: cart-service
     spec:
       containers:
-      - name: cart-service
-        image: truongikpk/bookstore-cart-service:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8080
-        env:
-        - name: SPRING_PROFILES_ACTIVE
-          value: "prod"
+        - name: cart-service
+          image: truongikpk/bookstore-cart-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "docker"
+            - name: REDIS_HOST
+              value: "cart-redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: BOOK_SERVICE_URL
+              value: "http://book-service:8080"
+            - name: SPRING_RABBITMQ_HOST
+              value: "rabbitmq"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
