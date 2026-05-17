@@ -11,8 +11,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,19 +34,20 @@ class CartControllerWebMvcTest {
     @Test
     void getCart_returnsApiResponse() throws Exception {
         UUID userId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID cartId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         Mockito.when(userContext.requireUserId()).thenReturn(userId);
         CartResponse mockResp = CartResponse.builder()
+                .cartId(cartId)
                 .userId(userId)
                 .items(List.of())
-                .itemCount(0)
-                .totalPrice(BigDecimal.ZERO)
-                .updatedAt(Instant.now())
+                .itemCount(0L)
+                .totalPrice(0.0)
                 .build();
         Mockito.when(cartService.getCart(userId)).thenReturn(mockResp);
 
-        mockMvc.perform(get("/api/cart").header("X-User-Id", userId.toString()))
+        mockMvc.perform(get("/api/v1/cart").header("X-User-Id", userId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.code").value(1000))
                 .andExpect(jsonPath("$.result.userId").value(userId.toString()));
     }
 }

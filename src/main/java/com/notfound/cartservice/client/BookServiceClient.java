@@ -15,6 +15,6 @@ import java.util.UUID;
 )
 public interface BookServiceClient {
 
-    @GetMapping("/api/books/{id}")
+    @GetMapping("/api/v1/books/{id}")
     BookApiResponse getBook(@PathVariable("id") UUID id);
 }

@@ -2,6 +2,7 @@ package com.notfound.cartservice.client.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -14,4 +15,18 @@ public class BookApiResponse {
 
     @JsonAlias({"result", "data"})
     private BookResponse result;
+
+    @JsonProperty("data")
+    public void setData(BookResponse data) {
+        this.result = data;
+    }
+
+    @JsonProperty("result")
+    public void setResult(BookResponse result) {
+        this.result = result;
+    }
+
+    public BookResponse getBook() {
+        return result;
+    }
 }
