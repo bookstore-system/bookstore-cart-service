@@ -24,6 +24,14 @@ Microservice quản lý giỏ hàng cho hệ thống Bookstore. Lưu trữ giỏ
 
 > Gateway xác thực JWT và forward header `X-User-Id` (**UUID**) và `X-User-Role` tới service. Khi test trực tiếp vào `:8083`, bạn tự gắn 2 header này.
 
+### Swagger UI (SpringDoc OpenAPI 3)
+
+- **UI:** `http://localhost:8083/swagger-ui.html`
+- **OpenAPI JSON:** `http://localhost:8083/v3/api-docs`
+- Trên Swagger UI dùng **Authorize** để nhập `X-User-Id` và `X-User-Role`.
+
+Production có thể tắt: `springdoc.api-docs.enabled=false` và `springdoc.swagger-ui.enabled=false`.
+
 ## 3. Biến môi trường
 
 | Biến | Mặc định (local) | Mặc định (docker) | Mô tả |
@@ -73,39 +81,39 @@ UUID mẫu:
 
 ```bash
 # 1) Lấy giỏ hàng
-curl http://localhost:8083/api/cart \
+curl http://localhost:8083/api/v1/cart \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER"
 
 # 2) Thêm sản phẩm
-curl -X POST http://localhost:8083/api/cart/items \
+curl -X POST http://localhost:8083/api/v1/cart/add \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER" \
   -H "Content-Type: application/json" \
   -d '{"bookId":"22222222-2222-2222-2222-222222222222","quantity":2}'
 
 # 3) Update quantity (itemId lấy từ response bước 2)
-curl -X PUT http://localhost:8083/api/cart/items/<ITEM_ID> \
+curl -X PUT http://localhost:8083/api/v1/cart/update/<BOOK_ID> \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER" \
   -H "Content-Type: application/json" \
   -d '{"quantity":5}'
 
 # 4) Xoá 1 item
-curl -X DELETE http://localhost:8083/api/cart/items/<ITEM_ID> \
+curl -X DELETE http://localhost:8083/api/v1/cart/remove/<BOOK_ID> \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER"
 
 # 5) Xoá toàn bộ
-curl -X DELETE http://localhost:8083/api/cart \
+curl -X DELETE http://localhost:8083/api/v1/cart/clear \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER"
 
 # 6) Snapshot cho checkout
-curl http://localhost:8083/api/cart/snapshot \
+curl http://localhost:8083/api/v1/cart/snapshot \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER"
 
 # 7) Count
-curl http://localhost:8083/api/cart/count \
+curl http://localhost:8083/api/v1/cart/count \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER"
 
 # 8) Check book in cart
-curl http://localhost:8083/api/cart/check/22222222-2222-2222-2222-222222222222 \
+curl http://localhost:8083/api/v1/cart/check/22222222-2222-2222-2222-222222222222 \
   -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "X-User-Role: ROLE_USER"
 ```
 

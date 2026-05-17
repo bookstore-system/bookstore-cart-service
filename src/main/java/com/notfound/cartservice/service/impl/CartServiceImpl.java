@@ -6,13 +6,19 @@ import com.notfound.cartservice.client.dto.BookResponse;
 import com.notfound.cartservice.exception.BookOutOfStockException;
 import com.notfound.cartservice.exception.ResourceNotFoundException;
 import com.notfound.cartservice.exception.ServiceUnavailableException;
-import com.notfound.cartservice.model.dto.request.AddCartItemRequest;
+import com.notfound.cartservice.mapper.CartCacheMapper;
+import com.notfound.cartservice.mapper.CartMapper;
+import com.notfound.cartservice.model.cache.CartCache;
+import com.notfound.cartservice.model.dto.request.AddToCartRequest;
 import com.notfound.cartservice.model.dto.request.UpdateCartItemRequest;
-import com.notfound.cartservice.model.dto.response.CartItemResponse;
+import com.notfound.cartservice.model.dto.response.AddToCartResponse;
 import com.notfound.cartservice.model.dto.response.CartResponse;
 import com.notfound.cartservice.model.dto.response.CartSnapshotResponse;
-import com.notfound.cartservice.model.entity.Cart;
-import com.notfound.cartservice.model.entity.CartItem;
+import com.notfound.cartservice.model.dto.response.RemoveCartResponse;
+import com.notfound.cartservice.model.dto.response.UpdateCartResponse;
+import com.notfound.cartservice.model.entity.CartEntity;
+import com.notfound.cartservice.model.entity.CartItemEntity;
+import com.notfound.cartservice.repository.CartRepository;
 import com.notfound.cartservice.service.CartService;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +26,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,8 +43,11 @@ public class CartServiceImpl implements CartService {
 
     private static final String CART_KEY_PREFIX = "cart:";
 
-    private final RedisTemplate<String, Cart> redisTemplate;
+    private final RedisTemplate<String, CartCache> redisTemplate;
     private final BookServiceClient bookServiceClient;
+    private final CartRepository cartRepository;
+    private final CartMapper cartMapper;
+    private final CartCacheMapper cartCacheMapper;
 
     @Value("${cart.ttl-days:7}")
     private long ttlDays;
@@ -46,126 +57,145 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public CartResponse getCart(UUID userId) {
-        Cart cart = loadOrCreate(userId);
-        return toResponse(cart);
+        CartEntity cart = loadOrCreate(userId);
+        return cartMapper.toCartResponse(cart);
     }
 
     @Override
-    public CartResponse addItem(UUID userId, AddCartItemRequest request) {
-        Cart cart = loadOrCreate(userId);
-
+    public AddToCartResponse addToCart(UUID userId, AddToCartRequest request) {
+        CartEntity cart = loadOrCreate(userId);
         BookResponse book = fetchBook(request.getBookId());
         validateStock(book, request.getQuantity());
 
-        Optional<CartItem> existing = cart.getItems().stream()
+        Optional<CartItemEntity> existing = cart.getItems().stream()
                 .filter(i -> i.getBookId().equals(request.getBookId()))
                 .findFirst();
 
+        CartItemEntity item;
         if (existing.isPresent()) {
-            CartItem item = existing.get();
+            item = existing.get();
             int newQuantity = item.getQuantity() + request.getQuantity();
             validateStock(book, newQuantity);
             item.setQuantity(newQuantity);
-            item.setBookPrice(book.getPrice());
-            item.setBookTitle(book.getTitle());
-            item.setBookCoverUrl(book.getCoverUrl());
+            applyBookDetails(item, book);
         } else {
             if (cart.getItems().size() >= maxItemsPerCart) {
                 throw new IllegalArgumentException(
                         "Giỏ hàng đã đạt giới hạn " + maxItemsPerCart + " loại sản phẩm");
             }
-            CartItem item = CartItem.builder()
-                    .itemId(UUID.randomUUID().toString())
+            item = CartItemEntity.builder()
+                    .itemId(UUID.randomUUID())
                     .bookId(book.getId())
-                    .bookTitle(book.getTitle())
-                    .bookPrice(book.getPrice())
-                    .bookCoverUrl(book.getCoverUrl())
                     .quantity(request.getQuantity())
                     .addedAt(Instant.now())
                     .build();
+            item.setCart(cart);
+            applyBookDetails(item, book);
             cart.getItems().add(item);
         }
 
         cart.setUpdatedAt(Instant.now());
         save(cart);
-        log.info("Add item bookId={} qty={} cho userId={}", request.getBookId(), request.getQuantity(), userId);
-        return toResponse(cart);
+        log.info("Add bookId={} qty={} cho userId={}", request.getBookId(), request.getQuantity(), userId);
+
+        return AddToCartResponse.builder()
+                .cartItem(cartMapper.toCartItemResponse(item))
+                .cartItemCount(cart.lineItemCount())
+                .build();
     }
 
     @Override
-    public CartResponse updateItem(UUID userId, String itemId, UpdateCartItemRequest request) {
-        Cart cart = loadOrCreate(userId);
-        CartItem item = cart.getItems().stream()
-                .filter(i -> itemId.equals(i.getItemId()))
+    public UpdateCartResponse updateCartItem(UUID userId, UUID bookId, UpdateCartItemRequest request) {
+        CartEntity cart = loadOrCreate(userId);
+        CartItemEntity item = cart.getItems().stream()
+                .filter(i -> bookId.equals(i.getBookId()))
                 .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("CartItem", itemId));
+                .orElseThrow(() -> new ResourceNotFoundException("CartItem", bookId));
 
-        BookResponse book = fetchBook(item.getBookId());
+        BookResponse book = fetchBook(bookId);
         validateStock(book, request.getQuantity());
 
         item.setQuantity(request.getQuantity());
-        item.setBookPrice(book.getPrice());
-        item.setBookTitle(book.getTitle());
-        item.setBookCoverUrl(book.getCoverUrl());
+        applyBookDetails(item, book);
 
         cart.setUpdatedAt(Instant.now());
         save(cart);
-        log.info("Update itemId={} qty={} cho userId={}", itemId, request.getQuantity(), userId);
-        return toResponse(cart);
+        log.info("Update bookId={} qty={} cho userId={}", bookId, request.getQuantity(), userId);
+
+        return UpdateCartResponse.builder()
+                .cartItem(cartMapper.toCartItemResponse(item))
+                .totalPrice(cart.totalPrice())
+                .build();
     }
 
     @Override
-    public CartResponse removeItem(UUID userId, String itemId) {
-        Cart cart = loadOrCreate(userId);
-        boolean removed = cart.getItems().removeIf(i -> itemId.equals(i.getItemId()));
+    public RemoveCartResponse removeFromCart(UUID userId, UUID bookId) {
+        CartEntity cart = loadOrCreate(userId);
+        boolean removed = cart.getItems().removeIf(i -> bookId.equals(i.getBookId()));
         if (!removed) {
-            throw new ResourceNotFoundException("CartItem", itemId);
+            throw new ResourceNotFoundException("CartItem", bookId);
         }
+
         cart.setUpdatedAt(Instant.now());
         save(cart);
-        log.info("Remove itemId={} khỏi cart của userId={}", itemId, userId);
-        return toResponse(cart);
+        log.info("Remove bookId={} khỏi cart của userId={}", bookId, userId);
+
+        return RemoveCartResponse.builder()
+                .cartItemCount(cart.lineItemCount())
+                .totalPrice(cart.totalPrice())
+                .build();
     }
 
     @Override
+    @Transactional
     public void clearCart(UUID userId) {
-        String key = key(userId);
-        Boolean existed = redisTemplate.delete(key);
-        log.info("Clear cart cho userId={} (existed={})", userId, existed);
+        cartRepository.deleteByUserId(userId);
+        redisTemplate.delete(key(userId));
+        log.info("Clear cart cho userId={}", userId);
+    }
+
+    @Override
+    public boolean isCartEmpty(UUID userId) {
+        CartEntity cart = loadOrCreate(userId);
+        return cart.getItems().isEmpty();
     }
 
     @Override
     public CartSnapshotResponse getSnapshot(UUID userId) {
-        Cart cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId);
 
         List<CartSnapshotResponse.SnapshotItem> snapshotItems = new ArrayList<>();
-        for (CartItem item : cart.getItems()) {
+        for (CartItemEntity item : cart.getItems()) {
             try {
                 BookResponse book = fetchBook(item.getBookId());
+                BigDecimal price = BigDecimal.valueOf(book.getPriceAsDouble());
                 snapshotItems.add(CartSnapshotResponse.SnapshotItem.builder()
                         .bookId(book.getId())
                         .bookTitle(book.getTitle())
-                        .bookPrice(book.getPrice())
-                        .bookCoverUrl(book.getCoverUrl())
+                        .bookPrice(price)
+                        .bookCoverUrl(book.resolveImageUrl())
                         .quantity(item.getQuantity())
-                        .subtotal(book.getPrice().multiply(java.math.BigDecimal.valueOf(item.getQuantity())))
+                        .subtotal(price.multiply(BigDecimal.valueOf(item.getQuantity())))
                         .build());
             } catch (Exception ex) {
                 log.warn("Snapshot bỏ qua item bookId={} (lỗi fetch book): {}", item.getBookId(), ex.getMessage());
+                BigDecimal price = item.getBookPrice() == null
+                        ? BigDecimal.ZERO
+                        : BigDecimal.valueOf(item.getBookPrice());
                 snapshotItems.add(CartSnapshotResponse.SnapshotItem.builder()
                         .bookId(item.getBookId())
                         .bookTitle(item.getBookTitle())
-                        .bookPrice(item.getBookPrice())
-                        .bookCoverUrl(item.getBookCoverUrl())
+                        .bookPrice(price)
+                        .bookCoverUrl(item.getBookImageUrl())
                         .quantity(item.getQuantity())
-                        .subtotal(item.getSubtotal())
+                        .subtotal(price.multiply(BigDecimal.valueOf(item.getQuantity())))
                         .build());
             }
         }
 
-        java.math.BigDecimal total = snapshotItems.stream()
+        BigDecimal total = snapshotItems.stream()
                 .map(CartSnapshotResponse.SnapshotItem::getSubtotal)
-                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return CartSnapshotResponse.builder()
                 .userId(userId)
@@ -176,50 +206,102 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
-    public int countItems(UUID userId) {
-        Cart cart = loadOrCreate(userId);
-        return cart.totalItems();
+    public Long getCartItemCount(UUID userId) {
+        CartEntity cart = loadOrCreate(userId);
+        return cart.lineItemCount();
     }
 
     @Override
     public boolean isBookInCart(UUID userId, UUID bookId) {
-        Cart cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId);
         return cart.getItems().stream().anyMatch(i -> bookId.equals(i.getBookId()));
     }
 
-    private Cart loadOrCreate(UUID userId) {
-        Cart cart = redisTemplate.opsForValue().get(key(userId));
-        if (cart == null) {
-            cart = Cart.builder()
-                    .userId(userId)
-                    .items(new ArrayList<>())
-                    .createdAt(Instant.now())
-                    .updatedAt(Instant.now())
-                    .build();
+    private CartEntity loadOrCreate(UUID userId) {
+        CartCache cached = redisTemplate.opsForValue().get(key(userId));
+        if (cached != null) {
+            CartEntity fromCache = cartCacheMapper.toEntity(cached);
+            if (fromCache.getItems() == null) {
+                fromCache.setItems(new ArrayList<>());
+            }
+            refreshMissingBookImages(fromCache);
+            return fromCache;
         }
-        if (cart.getItems() == null) {
-            cart.setItems(new ArrayList<>());
+
+        Optional<CartEntity> fromDb = cartRepository.findByUserId(userId);
+        if (fromDb.isPresent()) {
+            CartEntity cart = fromDb.get();
+            if (cart.getItems() == null) {
+                cart.setItems(new ArrayList<>());
+            }
+            refreshMissingBookImages(cart);
+            writeCache(cart);
+            return cart;
         }
-        return cart;
+
+        Instant now = Instant.now();
+        CartEntity cart = CartEntity.builder()
+                .cartId(UUID.randomUUID())
+                .userId(userId)
+                .items(new ArrayList<>())
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        CartEntity saved = cartRepository.save(cart);
+        writeCache(saved);
+        return saved;
     }
 
-    private void save(Cart cart) {
-        redisTemplate.opsForValue().set(key(cart.getUserId()), cart, Duration.ofDays(ttlDays));
+    private void save(CartEntity cart) {
+        CartEntity saved = cartRepository.save(cart);
+        writeCache(saved != null ? saved : cart);
+    }
+
+    private void writeCache(CartEntity cart) {
+        CartCache cache = cartCacheMapper.toCache(cart);
+        redisTemplate.opsForValue().set(key(cart.getUserId()), cache, Duration.ofDays(ttlDays));
     }
 
     private String key(UUID userId) {
-        return CART_KEY_PREFIX + userId.toString();
+        return CART_KEY_PREFIX + userId;
+    }
+
+    private void applyBookDetails(CartItemEntity item, BookResponse book) {
+        item.setBookTitle(book.getTitle());
+        item.setBookIsbn(book.getIsbn());
+        item.setBookPrice(book.getPriceAsDouble());
+        item.setBookDiscountPrice(book.getDiscountPriceAsDouble());
+        item.setBookImageUrl(book.resolveImageUrl());
+        item.setStockQuantity(book.getStock());
+    }
+
+    private void refreshMissingBookImages(CartEntity cart) {
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            return;
+        }
+        boolean changed = false;
+        for (CartItemEntity item : cart.getItems()) {
+            if (item.getBookImageUrl() == null || item.getBookImageUrl().isBlank()) {
+                try {
+                    BookResponse book = fetchBook(item.getBookId());
+                    applyBookDetails(item, book);
+                    changed = true;
+                } catch (Exception ex) {
+                    log.warn("Không refresh được ảnh cho bookId={}: {}", item.getBookId(), ex.getMessage());
+                }
+            }
+        }
+        if (changed) {
+            save(cart);
+        }
     }
 
     private BookResponse fetchBook(UUID bookId) {
         try {
             BookApiResponse resp = bookServiceClient.getBook(bookId);
-            if (resp == null || resp.getResult() == null) {
+            BookResponse book = resp == null ? null : resp.getBook();
+            if (book == null) {
                 throw new ResourceNotFoundException("Book", bookId);
-            }
-            BookResponse book = resp.getResult();
-            if (book.getPrice() == null) {
-                book.setPrice(java.math.BigDecimal.ZERO);
             }
             return book;
         } catch (FeignException.NotFound nf) {
@@ -228,7 +310,9 @@ public class CartServiceImpl implements CartService {
             log.error("Feign error khi gọi book-service bookId={}: status={}", bookId, fe.status());
             throw new ServiceUnavailableException("book-service");
         } catch (RuntimeException re) {
-            if (re instanceof ResourceNotFoundException) throw re;
+            if (re instanceof ResourceNotFoundException) {
+                throw re;
+            }
             log.error("Lỗi khi gọi book-service bookId={}", bookId, re);
             throw new ServiceUnavailableException("book-service");
         }
@@ -238,28 +322,5 @@ public class CartServiceImpl implements CartService {
         if (book.getStock() != null && book.getStock() < quantity) {
             throw new BookOutOfStockException(book.getId(), book.getStock());
         }
-    }
-
-    private CartResponse toResponse(Cart cart) {
-        List<CartItemResponse> items = cart.getItems().stream()
-                .map(i -> CartItemResponse.builder()
-                        .itemId(i.getItemId())
-                        .bookId(i.getBookId())
-                        .bookTitle(i.getBookTitle())
-                        .bookPrice(i.getBookPrice())
-                        .bookCoverUrl(i.getBookCoverUrl())
-                        .quantity(i.getQuantity())
-                        .subtotal(i.getSubtotal())
-                        .addedAt(i.getAddedAt())
-                        .build())
-                .toList();
-
-        return CartResponse.builder()
-                .userId(cart.getUserId())
-                .items(items)
-                .itemCount(cart.totalItems())
-                .totalPrice(cart.totalPrice())
-                .updatedAt(cart.getUpdatedAt())
-                .build();
     }
 }

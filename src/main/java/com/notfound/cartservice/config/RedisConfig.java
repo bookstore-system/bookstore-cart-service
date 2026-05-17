@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.notfound.cartservice.model.entity.Cart;
+import com.notfound.cartservice.model.cache.CartCache;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -36,14 +36,14 @@ public class RedisConfig {
     }
 
     @Bean
-    public RedisTemplate<String, Cart> cartRedisTemplate(RedisConnectionFactory connectionFactory,
-                                                         ObjectMapper redisObjectMapper) {
-        RedisTemplate<String, Cart> template = new RedisTemplate<>();
+    public RedisTemplate<String, CartCache> cartRedisTemplate(RedisConnectionFactory connectionFactory,
+                                                              ObjectMapper redisObjectMapper) {
+        RedisTemplate<String, CartCache> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
 
         StringRedisSerializer keySerializer = new StringRedisSerializer();
-        Jackson2JsonRedisSerializer<Cart> valueSerializer =
-                new Jackson2JsonRedisSerializer<>(redisObjectMapper, Cart.class);
+        Jackson2JsonRedisSerializer<CartCache> valueSerializer =
+                new Jackson2JsonRedisSerializer<>(redisObjectMapper, CartCache.class);
 
         template.setKeySerializer(keySerializer);
         template.setHashKeySerializer(keySerializer);

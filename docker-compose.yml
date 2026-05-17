@@ -1,6 +1,28 @@
 version: '3.8'
 
 services:
+  cart-db:
+    image: mysql:8.0
+    container_name: cart-db
+    restart: always
+    ports:
+      - "3310:3306"
+    environment:
+      MYSQL_DATABASE: bookstore_cart
+      MYSQL_USER: bookstore
+      MYSQL_PASSWORD: bookstore
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - cart_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - bookstore-network
+
   cart-redis:
     image: redis:7-alpine
     container_name: cart-redis
@@ -30,10 +52,17 @@ services:
     command: mvn spring-boot:run -Dspring-boot.run.profiles=docker
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://cart-db:3306/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: bookstore
+      SPRING_DATASOURCE_PASSWORD: bookstore
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.MySQLDialect
       REDIS_HOST: cart-redis
       REDIS_PORT: 6379
       BOOK_SERVICE_URL: http://book-service:8080
     depends_on:
+      cart-db:
+        condition: service_healthy
       cart-redis:
         condition: service_healthy
     networks:
@@ -44,4 +73,5 @@ networks:
     external: true
 
 volumes:
+  cart_mysql_data:
   cart_redis_data:

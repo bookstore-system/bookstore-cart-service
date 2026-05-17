@@ -1,4 +1,4 @@
-package com.notfound.cartservice.model.entity;
+package com.notfound.cartservice.model.cache;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
@@ -7,7 +7,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -15,29 +14,27 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CartItem implements Serializable {
+public class CartItemCache implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    private String itemId;
-
+    private UUID itemId;
     private UUID bookId;
-
     private Integer quantity;
-
     private String bookTitle;
-
-    private BigDecimal bookPrice;
-
-    private String bookCoverUrl;
+    private String bookIsbn;
+    private Double bookPrice;
+    private Double bookDiscountPrice;
+    private String bookImageUrl;
+    private Integer stockQuantity;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant addedAt;
 
-    public BigDecimal getSubtotal() {
+    public double getSubTotal() {
         if (bookPrice == null || quantity == null) {
-            return BigDecimal.ZERO;
+            return 0.0;
         }
-        return bookPrice.multiply(BigDecimal.valueOf(quantity));
+        return bookPrice * quantity;
     }
 }
