@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: bookstore-cart-service
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:rabbitmq}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://cart-db:3306/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${SPRING_DATASOURCE_USERNAME:bookstore}
@@ -25,6 +30,13 @@ book-service:
 cart:
   ttl-days: ${CART_TTL_DAYS:7}
   max-items-per-cart: 100
+
+saga:
+  exchange-commands: bookstore.commands
+  exchange-events: bookstore.events
+  queue-cart-commands: cart.commands.queue
+  rk-cart-clear-command: cart.clear.command
+  rk-cart-cleared: cart.cleared
 
 logging:
   level:
