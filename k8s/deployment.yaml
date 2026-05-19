@@ -22,7 +22,17 @@ spec:
             - containerPort: 8080
           env:
             - name: SPRING_PROFILES_ACTIVE
-              value: "docker"
+              value: "dev"
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://cart-db:3306/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "bookstore"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: "bookstore"
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: "update"
+            - name: SPRING_JPA_DATABASE_PLATFORM
+              value: "org.hibernate.dialect.MySQLDialect"
             - name: REDIS_HOST
               value: "cart-redis"
             - name: REDIS_PORT

@@ -34,9 +34,10 @@ Production có thể tắt: `springdoc.api-docs.enabled=false` và `springdoc.sw
 
 ## 3. Biến môi trường
 
-| Biến | Mặc định (local) | Mặc định (docker) | Mô tả |
+| Biến | Mặc định (local `dev`) | Override (container) | Mô tả |
 | --- | --- | --- | --- |
-| `SPRING_PROFILES_ACTIVE` | `dev` | `docker` | profile cấu hình (`application-dev.yaml` / `application-docker.yaml`) |
+| `SPRING_PROFILES_ACTIVE` | `dev` | `dev` | profile cấu hình (`application-dev.yaml`) |
+| `SPRING_DATASOURCE_URL` | `localhost:3310` | `cart-db:3306` | MySQL |
 | `REDIS_HOST` | `localhost` | `cart-redis` | hostname Redis |
 | `REDIS_PORT` | `6379` | `6379` | cổng Redis |
 | `BOOK_SERVICE_URL` | `http://localhost:8082` | `http://book-service:8080` | URL book-service |
@@ -66,9 +67,9 @@ cd ../mircoservice/bookstore-cart-service
 - **Swagger:** `http://localhost:8080/swagger-ui.html` (port 8080 khi chạy Maven, không phải 8083)
 - Cấu hình chi tiết: `src/main/resources/application-dev.yaml`
 
-### 4.2. Chạy app trong Docker (profile `docker`)
+### 4.2. Chạy app trong Docker (profile `dev` + env override)
 
-Dùng khi cần hot-reload trong container; **không** phải workflow dev saga mặc định.
+Dùng khi cần hot-reload trong container hoặc chạy full stack image.
 
 ```powershell
 cd mircoservice/bookstore-cart-service
@@ -77,7 +78,7 @@ docker compose up -d
 docker compose logs -f cart-service
 ```
 
-Service sẽ ở `http://localhost:8083`.
+Service sẽ ở `http://localhost:8083`. Compose set biến môi trường (`cart-db`, `cart-redis`, `rabbitmq`, ...).
 
 ### 4.3. Chạy full stack bằng `docker-compose.dev.yml`
 

@@ -62,7 +62,7 @@ service/
     ```
     RabbitMQ saga: bật từ `Plan-And-Document/docker-compose.dev.yml` (`rabbitmq` service).
 
-5.  **Tự động cập nhật code (Hot Reload trong Docker)**: Chỉ khi dùng profile `docker` trong container — sau khi sửa code:
+5.  **Tự động cập nhật code (Hot Reload trong Docker)**: Khi chạy app trong container (`docker compose up` với profile `dev` + env override) — sau khi sửa code:
     ```bash
     ./mvnw compile
     ```

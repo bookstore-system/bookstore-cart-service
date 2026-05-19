@@ -49,9 +49,9 @@ services:
     volumes:
       - .:/build
       - ~/.m2:/root/.m2
-    command: mvn spring-boot:run -Dspring-boot.run.profiles=docker
+    command: mvn spring-boot:run -Dspring-boot.run.profiles=dev
     environment:
-      SPRING_PROFILES_ACTIVE: docker
+      SPRING_PROFILES_ACTIVE: dev
       SPRING_DATASOURCE_URL: jdbc:mysql://cart-db:3306/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       SPRING_DATASOURCE_USERNAME: bookstore
       SPRING_DATASOURCE_PASSWORD: bookstore
@@ -60,6 +60,7 @@ services:
       REDIS_HOST: cart-redis
       REDIS_PORT: 6379
       BOOK_SERVICE_URL: http://book-service:8080
+      SPRING_RABBITMQ_HOST: rabbitmq
     depends_on:
       cart-db:
         condition: service_healthy
