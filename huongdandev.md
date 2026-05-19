@@ -55,7 +55,14 @@ service/
     ```bash
     docker compose up -d
     ```
-4.  **Tự động cập nhật code (Hot Reload)**: Sau khi chỉnh sửa code, hãy chạy lệnh sau để container tự động biên dịch và áp dụng thay đổi mà không cần restart:
+4.  **Chạy service trên máy (profile `dev`)**: Không chạy app trong Docker; dùng `application-dev.yaml`:
+    ```powershell
+    docker compose up -d cart-db cart-redis
+    ./mvnw spring-boot:run "-Dspring-boot.run.profiles=dev"
+    ```
+    RabbitMQ saga: bật từ `Plan-And-Document/docker-compose.dev.yml` (`rabbitmq` service).
+
+5.  **Tự động cập nhật code (Hot Reload trong Docker)**: Chỉ khi dùng profile `docker` trong container — sau khi sửa code:
     ```bash
     ./mvnw compile
     ```

@@ -32,6 +32,7 @@ cart:
   max-items-per-cart: 100
 
 saga:
+  enabled: true
   exchange-commands: bookstore.commands
   exchange-events: bookstore.events
   queue-cart-commands: cart.commands.queue
