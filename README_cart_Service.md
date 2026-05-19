@@ -34,28 +34,42 @@ Production có thể tắt: `springdoc.api-docs.enabled=false` và `springdoc.sw
 
 ## 3. Biến môi trường
 
-| Biến | Mặc định (local) | Mặc định (docker) | Mô tả |
+| Biến | Mặc định (local `dev`) | Override (container) | Mô tả |
 | --- | --- | --- | --- |
-| `SPRING_PROFILES_ACTIVE` | _(none)_ | `docker` | profile cấu hình |
+| `SPRING_PROFILES_ACTIVE` | `dev` | `dev` | profile cấu hình (`application-dev.yaml`) |
+| `SPRING_DATASOURCE_URL` | `localhost:3310` | `cart-db:3306` | MySQL |
 | `REDIS_HOST` | `localhost` | `cart-redis` | hostname Redis |
 | `REDIS_PORT` | `6379` | `6379` | cổng Redis |
 | `BOOK_SERVICE_URL` | `http://localhost:8082` | `http://book-service:8080` | URL book-service |
+| `SPRING_RABBITMQ_HOST` | `localhost` | `rabbitmq` | RabbitMQ (saga checkout) |
 | `CART_TTL_DAYS` | `7` | `7` | TTL key `cart:{userId}` |
 
 ## 4. Cách chạy
 
-### 4.1. Chạy local với Maven
+### 4.1. Chạy local với Maven (profile `dev` — khuyến nghị)
+
+App chạy trên máy; chỉ bật **hạ tầng** bằng Docker (MySQL, Redis, RabbitMQ).
 
 ```powershell
-# Redis local
-docker run -d --name cart-redis-local -p 6379:6379 redis:7-alpine
-
-# Chạy cart-service
+# 1) Infra cart (MySQL :3310, Redis :6379)
 cd mircoservice/bookstore-cart-service
-./mvnw spring-boot:run
+docker compose up -d cart-db cart-redis
+
+# 2) RabbitMQ (saga) — từ Plan-And-Document
+cd ../../Plan-And-Document
+docker compose -f docker-compose.dev.yml up -d rabbitmq
+
+# 3) Chạy cart-service local, profile dev
+cd ../mircoservice/bookstore-cart-service
+./mvnw spring-boot:run "-Dspring-boot.run.profiles=dev"
 ```
 
-### 4.2. Chạy bằng docker compose (trong thư mục service)
+- **Swagger:** `http://localhost:8080/swagger-ui.html` (port 8080 khi chạy Maven, không phải 8083)
+- Cấu hình chi tiết: `src/main/resources/application-dev.yaml`
+
+### 4.2. Chạy app trong Docker (profile `dev` + env override)
+
+Dùng khi cần hot-reload trong container hoặc chạy full stack image.
 
 ```powershell
 cd mircoservice/bookstore-cart-service
@@ -64,7 +78,7 @@ docker compose up -d
 docker compose logs -f cart-service
 ```
 
-Service sẽ ở `http://localhost:8083`.
+Service sẽ ở `http://localhost:8083`. Compose set biến môi trường (`cart-db`, `cart-redis`, `rabbitmq`, ...).
 
 ### 4.3. Chạy full stack bằng `docker-compose.dev.yml`
 
