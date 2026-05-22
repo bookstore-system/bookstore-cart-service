@@ -1,26 +1,50 @@
 package com.notfound.cartservice.messaging;
 
 import com.notfound.cartservice.service.CartService;
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "saga", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class CartClearCommandConsumer {
 
     private final CartService cartService;
     private final CartEventPublisher cartEventPublisher;
     private final SagaProperties sagaProperties;
+    private final ObjectMapper objectMapper;
+
+    public CartClearCommandConsumer(CartService cartService,
+                                    CartEventPublisher cartEventPublisher,
+                                    SagaProperties sagaProperties,
+                                    @Qualifier("sagaObjectMapper") ObjectMapper objectMapper) {
+        this.cartService = cartService;
+        this.cartEventPublisher = cartEventPublisher;
+        this.sagaProperties = sagaProperties;
+        this.objectMapper = objectMapper;
+    }
 
     @RabbitListener(queues = "${saga.queue-cart-commands}")
-    public void onCartClearCommand(SagaMessage message) {
+    public void onCartClearCommand(Message rabbitMessage) {
+        SagaMessage message;
+        try {
+            message = objectMapper.readValue(rabbitMessage.getBody(), SagaMessage.class);
+        } catch (Exception e) {
+            log.error(
+                    "Cannot deserialize cart command routingKey={} body={}: {}",
+                    rabbitMessage.getMessageProperties().getReceivedRoutingKey(),
+                    new String(rabbitMessage.getBody(), StandardCharsets.UTF_8),
+                    e.getMessage());
+            return;
+        }
         UUID userId = requireUserId(message);
         log.info("Received {} sagaId={} userId={} eventId={}",
                 sagaProperties.getRkCartClearCommand(), message.getSagaId(), userId, message.getEventId());
