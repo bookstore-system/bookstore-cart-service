@@ -19,6 +19,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 @Configuration
 @EnableRabbit
@@ -28,11 +29,16 @@ import org.springframework.context.annotation.Configuration;
 public class SagaMessagingConfig {
 
     @Bean
-    public MessageConverter sagaMessageConverter() {
+    public ObjectMapper sagaObjectMapper() {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        return new Jackson2JsonMessageConverter(objectMapper);
+        return objectMapper;
+    }
+
+    @Bean
+    public MessageConverter sagaMessageConverter(@Qualifier("sagaObjectMapper") ObjectMapper sagaObjectMapper) {
+        return new Jackson2JsonMessageConverter(sagaObjectMapper);
     }
 
     @Bean

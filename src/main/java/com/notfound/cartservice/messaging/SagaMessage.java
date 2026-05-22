@@ -6,7 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,7 +25,7 @@ public class SagaMessage {
     private UUID correlationId;
     private UUID causationId;
     private String type;
-    private Instant occurredAt;
+    private LocalDateTime occurredAt;
     private UUID orderId;
     private UUID userId;
     private Map<String, Object> payload;

@@ -7,9 +7,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,7 +52,7 @@ class CartEventPublisherUnitTest {
                 .sagaId(sagaId)
                 .correlationId(correlationId)
                 .type("cart.clear.command")
-                .occurredAt(Instant.parse("2026-05-18T12:00:00Z"))
+                .occurredAt(LocalDateTime.parse("2026-05-18T12:00:00"))
                 .orderId(orderId)
                 .userId(userId)
                 .build();
@@ -65,7 +66,8 @@ class CartEventPublisherUnitTest {
         verify(rabbitTemplate).convertAndSend(
                 exchangeCaptor.capture(),
                 routingKeyCaptor.capture(),
-                messageCaptor.capture());
+                messageCaptor.capture(),
+                org.mockito.ArgumentMatchers.any(MessagePostProcessor.class));
 
         assertEquals(EVENTS_EXCHANGE, exchangeCaptor.getValue());
         assertEquals(CART_CLEARED_RK, routingKeyCaptor.getValue());

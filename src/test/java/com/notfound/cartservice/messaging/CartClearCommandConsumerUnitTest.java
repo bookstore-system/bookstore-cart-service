@@ -1,6 +1,7 @@
 package com.notfound.cartservice.messaging;
 
 import com.notfound.cartservice.service.CartService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,8 +10,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -38,6 +41,9 @@ class CartClearCommandConsumerUnitTest {
     @Mock
     private SagaProperties sagaProperties;
 
+    @Mock
+    private ObjectMapper objectMapper;
+
     @InjectMocks
     private CartClearCommandConsumer consumer;
 
@@ -47,42 +53,46 @@ class CartClearCommandConsumerUnitTest {
     }
 
     @Test
-    void onCartClearCommand_clearsCartAndPublishesEvent() {
+    void onCartClearCommand_clearsCartAndPublishesEvent() throws Exception {
         SagaMessage command = sampleCommand();
+        Message rabbitMessage = rabbitMessage(command);
 
-        consumer.onCartClearCommand(command);
+        consumer.onCartClearCommand(rabbitMessage);
 
         verify(cartService).clearCart(USER_ID);
         verify(cartEventPublisher).publishCartCleared(command);
     }
 
     @Test
-    void onCartClearCommand_duplicateCommand_isIdempotent() {
+    void onCartClearCommand_duplicateCommand_isIdempotent() throws Exception {
         SagaMessage command = sampleCommand();
+        Message rabbitMessage = rabbitMessage(command);
 
-        consumer.onCartClearCommand(command);
-        consumer.onCartClearCommand(command);
+        consumer.onCartClearCommand(rabbitMessage);
+        consumer.onCartClearCommand(rabbitMessage);
 
         verify(cartService, times(2)).clearCart(USER_ID);
         verify(cartEventPublisher, times(2)).publishCartCleared(command);
     }
 
     @Test
-    void onCartClearCommand_emptyCart_stillPublishesCleared() {
+    void onCartClearCommand_emptyCart_stillPublishesCleared() throws Exception {
         SagaMessage command = sampleCommand();
+        Message rabbitMessage = rabbitMessage(command);
 
-        consumer.onCartClearCommand(command);
+        consumer.onCartClearCommand(rabbitMessage);
 
         verify(cartService).clearCart(USER_ID);
         verify(cartEventPublisher).publishCartCleared(command);
     }
 
     @Test
-    void onCartClearCommand_missingUserId_throwsAndDoesNotPublish() {
+    void onCartClearCommand_missingUserId_throwsAndDoesNotPublish() throws Exception {
         SagaMessage command = sampleCommand();
         command.setUserId(null);
+        Message rabbitMessage = rabbitMessage(command);
 
-        assertThrows(IllegalArgumentException.class, () -> consumer.onCartClearCommand(command));
+        assertThrows(IllegalArgumentException.class, () -> consumer.onCartClearCommand(rabbitMessage));
 
         verifyNoInteractions(cartService);
         verifyNoInteractions(cartEventPublisher);
@@ -94,9 +104,15 @@ class CartClearCommandConsumerUnitTest {
                 .sagaId(SAGA_ID)
                 .correlationId(CORRELATION_ID)
                 .type("cart.clear.command")
-                .occurredAt(Instant.parse("2026-05-18T12:00:00Z"))
+                .occurredAt(LocalDateTime.parse("2026-05-18T12:00:00"))
                 .orderId(ORDER_ID)
                 .userId(USER_ID)
                 .build();
+    }
+
+    private Message rabbitMessage(SagaMessage command) throws Exception {
+        Message message = new Message(new byte[0], new MessageProperties());
+        when(objectMapper.readValue(message.getBody(), SagaMessage.class)).thenReturn(command);
+        return message;
     }
 }

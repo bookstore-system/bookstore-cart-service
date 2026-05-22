@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.notfound.cartservice.model.cache.CartCache;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -37,7 +38,7 @@ public class RedisConfig {
 
     @Bean
     public RedisTemplate<String, CartCache> cartRedisTemplate(RedisConnectionFactory connectionFactory,
-                                                              ObjectMapper redisObjectMapper) {
+                                                              @Qualifier("redisObjectMapper") ObjectMapper redisObjectMapper) {
         RedisTemplate<String, CartCache> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
 
