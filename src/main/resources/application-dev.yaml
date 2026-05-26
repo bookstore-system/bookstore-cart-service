@@ -1,16 +1,9 @@
-server:
-  port: 8080
+# Profile dev: mặc định chạy app trên máy (Maven/IDE) với infra Docker (MySQL :3310, Redis, RabbitMQ).
+# Khi chạy app trong container, override bằng biến môi trường (SPRING_DATASOURCE_URL, REDIS_HOST, ...).
 
 spring:
-  application:
-    name: bookstore-cart-service
-  rabbitmq:
-    host: ${SPRING_RABBITMQ_HOST:localhost}
-    port: ${SPRING_RABBITMQ_PORT:5672}
-    username: ${SPRING_RABBITMQ_USERNAME:guest}
-    password: ${SPRING_RABBITMQ_PASSWORD:guest}
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3310/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${SPRING_DATASOURCE_USERNAME:bookstore}
     password: ${SPRING_DATASOURCE_PASSWORD:bookstore}
   jpa:
@@ -22,14 +15,14 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      timeout: 3000
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
 
 book-service:
   url: ${BOOK_SERVICE_URL:http://localhost:8082}
-
-cart:
-  ttl-days: ${CART_TTL_DAYS:7}
-  max-items-per-cart: 100
 
 saga:
   enabled: true
@@ -39,15 +32,7 @@ saga:
   rk-cart-clear-command: cart.clear.command
   rk-cart-cleared: cart.cleared
 
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    tags-sorter: alpha
-    operations-sorter: alpha
-
 logging:
   level:
     com.notfound.cartservice: DEBUG
-    org.springframework.cloud.openfeign: INFO
+    com.notfound.cartservice.messaging: DEBUG

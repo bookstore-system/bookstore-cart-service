@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cart-service-config
+data:
+  SPRING_DATASOURCE_URL: "jdbc:mysql://bookstore-db-do-user-36177370-0.h.db.ondigitalocean.com:25060/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+  SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+  SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.MySQLDialect"
+  REDIS_HOST: "redis-bookstore-do-user-36177370-0.j.db.ondigitalocean.com"
+  REDIS_PORT: "25061"
+  SPRING_DATA_REDIS_USERNAME: "default"
+  SPRING_DATA_REDIS_SSL_ENABLED: "true"
+  BOOK_SERVICE_URL: "http://book-service:8080"
+  SPRING_RABBITMQ_HOST: "rabbitmq"
+  SPRING_RABBITMQ_PORT: "5672"
+  CART_TTL_DAYS: "7"
