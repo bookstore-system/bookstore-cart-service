@@ -32,10 +32,11 @@ pipeline {
         stage('Docker Build') {
             steps {
                 script {
-                    dockerImage = docker.build(
+                    def dockerImage = docker.build(
                         "${DOCKER_REGISTRY}/${IMAGE_NAME}:${TAG}",
                         "."
                     )
+                    env.BUILT_IMAGE = "${DOCKER_REGISTRY}/${IMAGE_NAME}:${TAG}"
                 }
             }
         }
@@ -47,7 +48,7 @@ pipeline {
                         'https://index.docker.io/v1/',
                         "${DOCKER_CREDENTIALS_ID}"
                     ) {
-                        dockerImage.push()
+                        docker.image(env.BUILT_IMAGE).push()
                     }
                 }
             }
@@ -57,6 +58,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(credentialsId: 'db-creds', usernameVariable: 'DB_USERNAME', passwordVariable: 'DB_PASSWORD'),
+                    usernamePassword(credentialsId: 'rabbitmq-cred', usernameVariable: 'RABBITMQ_USERNAME', passwordVariable: 'RABBITMQ_PASSWORD'),
                     string(credentialsId: 'redis-password', variable: 'SPRING_DATA_REDIS_PASSWORD')
                 ]) {
                     sh '''
@@ -69,6 +71,8 @@ pipeline {
                 kubectl create secret generic cart-service-secret \
                   --from-literal=DB_USERNAME="$DB_USERNAME" \
                   --from-literal=DB_PASSWORD="$DB_PASSWORD" \
+                  --from-literal=SPRING_RABBITMQ_USERNAME="$RABBITMQ_USERNAME" \
+                  --from-literal=SPRING_RABBITMQ_PASSWORD="$RABBITMQ_PASSWORD" \
                   --from-literal=SPRING_DATA_REDIS_PASSWORD="$SPRING_DATA_REDIS_PASSWORD" \
                   --dry-run=client -o yaml | kubectl apply -f -
 
