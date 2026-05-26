@@ -88,6 +88,21 @@ spec:
             configMapKeyRef:
               name: cart-service-config
               key: SPRING_RABBITMQ_PORT
+        - name: SPRING_RABBITMQ_VIRTUAL_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_RABBITMQ_VIRTUAL_HOST
+        - name: SPRING_RABBITMQ_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: cart-service-secret
+              key: SPRING_RABBITMQ_USERNAME
+        - name: SPRING_RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cart-service-secret
+              key: SPRING_RABBITMQ_PASSWORD
         - name: CART_TTL_DAYS
           valueFrom:
             configMapKeyRef:
