@@ -15,42 +15,99 @@ spec:
         app: cart-service
     spec:
       containers:
-        - name: cart-service
-          image: truongikpk/bookstore-cart-service:latest
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8080
-          env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: "dev"
-            - name: SPRING_DATASOURCE_URL
-              value: "jdbc:mysql://cart-db:3306/bookstore_cart?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
-            - name: SPRING_DATASOURCE_USERNAME
-              value: "bookstore"
-            - name: SPRING_DATASOURCE_PASSWORD
-              value: "bookstore"
-            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
-              value: "update"
-            - name: SPRING_JPA_DATABASE_PLATFORM
-              value: "org.hibernate.dialect.MySQLDialect"
-            - name: REDIS_HOST
-              value: "cart-redis"
-            - name: REDIS_PORT
-              value: "6379"
-            - name: BOOK_SERVICE_URL
-              value: "http://book-service:8080"
-            - name: SPRING_RABBITMQ_HOST
-              value: "rabbitmq"
-          readinessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 6
-          livenessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 60
-            periodSeconds: 30
+      - name: cart-service
+        image: truongdocker1/bookstore-cart-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "prod"
+        - name: SPRING_DATASOURCE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_DATASOURCE_URL
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: cart-service-secret
+              key: DB_USERNAME
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cart-service-secret
+              key: DB_PASSWORD
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_JPA_HIBERNATE_DDL_AUTO
+        - name: SPRING_JPA_DATABASE_PLATFORM
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_JPA_DATABASE_PLATFORM
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: REDIS_PORT
+        - name: SPRING_DATA_REDIS_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_DATA_REDIS_USERNAME
+        - name: SPRING_DATA_REDIS_SSL_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_DATA_REDIS_SSL_ENABLED
+        - name: SPRING_DATA_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: cart-service-secret
+              key: SPRING_DATA_REDIS_PASSWORD
+        - name: BOOK_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: BOOK_SERVICE_URL
+        - name: SPRING_RABBITMQ_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_RABBITMQ_HOST
+        - name: SPRING_RABBITMQ_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: SPRING_RABBITMQ_PORT
+        - name: CART_TTL_DAYS
+          valueFrom:
+            configMapKeyRef:
+              name: cart-service-config
+              key: CART_TTL_DAYS
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
