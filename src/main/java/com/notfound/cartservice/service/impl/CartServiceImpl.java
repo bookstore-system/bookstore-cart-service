@@ -27,6 +27,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -42,6 +44,8 @@ import java.util.UUID;
 public class CartServiceImpl implements CartService {
 
     private static final String CART_KEY_PREFIX = "cart:";
+    private static final String ADD_TO_CART_LOG_KEY = "CART_ADD_FLOW";
+    private static final long ADD_TO_CART_SLOW_THRESHOLD_MS = 3_000L;
 
     private final RedisTemplate<String, CartCache> redisTemplate;
     private final BookServiceClient bookServiceClient;
@@ -63,45 +67,84 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public AddToCartResponse addToCart(UUID userId, AddToCartRequest request) {
-        CartEntity cart = loadOrCreate(userId);
-        BookResponse book = fetchBook(request.getBookId());
-        validateStock(book, request.getQuantity());
+        String traceId = UUID.randomUUID().toString();
+        long startedAt = System.nanoTime();
 
-        Optional<CartItemEntity> existing = cart.getItems().stream()
-                .filter(i -> i.getBookId().equals(request.getBookId()))
-                .findFirst();
+        log.info("{} stage=start traceId={} userId={} bookId={} quantity={}",
+                ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), request.getQuantity());
 
-        CartItemEntity item;
-        if (existing.isPresent()) {
-            item = existing.get();
-            int newQuantity = item.getQuantity() + request.getQuantity();
-            validateStock(book, newQuantity);
-            item.setQuantity(newQuantity);
-            applyBookDetails(item, book);
-        } else {
-            if (cart.getItems().size() >= maxItemsPerCart) {
-                throw new IllegalArgumentException(
+        try {
+            long stageStartedAt = System.nanoTime();
+            CartEntity cart = loadOrCreate(userId);
+            log.info("{} stage=load_cart_done traceId={} userId={} bookId={} durationMs={} cartId={} itemCount={}",
+                    ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
+                    cart.getCartId(), cart.lineItemCount());
+
+            stageStartedAt = System.nanoTime();
+            BookResponse book = fetchBook(request.getBookId());
+            log.info("{} stage=fetch_book_done traceId={} userId={} bookId={} durationMs={} stock={}",
+                    ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
+                    book.getStock());
+            validateStock(book, request.getQuantity());
+
+            Optional<CartItemEntity> existing = cart.getItems().stream()
+                    .filter(i -> i.getBookId().equals(request.getBookId()))
+                    .findFirst();
+
+            CartItemEntity item;
+            boolean existingItem = existing.isPresent();
+            if (existingItem) {
+                item = existing.get();
+                int newQuantity = item.getQuantity() + request.getQuantity();
+                validateStock(book, newQuantity);
+                item.setQuantity(newQuantity);
+                applyBookDetails(item, book);
+            } else {
+                if (cart.getItems().size() >= maxItemsPerCart) {
+                    throw new IllegalArgumentException(
                         "Giỏ hàng đã đạt giới hạn " + maxItemsPerCart + " loại sản phẩm");
+                }
+                item = CartItemEntity.builder()
+                        .itemId(UUID.randomUUID())
+                        .bookId(book.getId())
+                        .quantity(request.getQuantity())
+                        .addedAt(Instant.now())
+                        .build();
+                item.setCart(cart);
+                applyBookDetails(item, book);
+                cart.getItems().add(item);
             }
-            item = CartItemEntity.builder()
-                    .itemId(UUID.randomUUID())
-                    .bookId(book.getId())
-                    .quantity(request.getQuantity())
-                    .addedAt(Instant.now())
+
+            cart.setUpdatedAt(Instant.now());
+            stageStartedAt = System.nanoTime();
+            save(cart);
+            log.info("{} stage=save_done traceId={} userId={} bookId={} durationMs={} existingItem={} itemCount={}",
+                    ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
+                    existingItem, cart.lineItemCount());
+
+            AddToCartResponse response = AddToCartResponse.builder()
+                    .cartItem(cartMapper.toCartItemResponse(item))
+                    .cartItemCount(cart.lineItemCount())
                     .build();
-            item.setCart(cart);
-            applyBookDetails(item, book);
-            cart.getItems().add(item);
+
+            long totalDurationMs = elapsedMs(startedAt);
+            if (totalDurationMs >= ADD_TO_CART_SLOW_THRESHOLD_MS) {
+                log.warn("{} stage=slow_success traceId={} userId={} bookId={} quantity={} totalDurationMs={} thresholdMs={}",
+                        ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), request.getQuantity(),
+                        totalDurationMs, ADD_TO_CART_SLOW_THRESHOLD_MS);
+            } else {
+                log.info("{} stage=success traceId={} userId={} bookId={} quantity={} totalDurationMs={}",
+                        ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), request.getQuantity(),
+                        totalDurationMs);
+            }
+
+            return response;
+        } catch (RuntimeException ex) {
+            log.warn("{} stage=failed traceId={} userId={} bookId={} quantity={} totalDurationMs={} errorType={} errorMessage={}",
+                    ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), request.getQuantity(),
+                    elapsedMs(startedAt), ex.getClass().getSimpleName(), ex.getMessage());
+            throw ex;
         }
-
-        cart.setUpdatedAt(Instant.now());
-        save(cart);
-        log.info("Add bookId={} qty={} cho userId={}", request.getBookId(), request.getQuantity(), userId);
-
-        return AddToCartResponse.builder()
-                .cartItem(cartMapper.toCartItemResponse(item))
-                .cartItemCount(cart.lineItemCount())
-                .build();
     }
 
     @Override
@@ -150,7 +193,16 @@ public class CartServiceImpl implements CartService {
     @Transactional
     public void clearCart(UUID userId) {
         cartRepository.deleteByUserId(userId);
-        redisTemplate.delete(key(userId));
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deleteCacheSafely(userId);
+                }
+            });
+        } else {
+            deleteCacheSafely(userId);
+        }
         log.info("Clear cart cho userId={}", userId);
     }
 
@@ -218,7 +270,7 @@ public class CartServiceImpl implements CartService {
     }
 
     private CartEntity loadOrCreate(UUID userId) {
-        CartCache cached = redisTemplate.opsForValue().get(key(userId));
+        CartCache cached = readCacheSafely(userId);
         if (cached != null) {
             CartEntity fromCache = cartCacheMapper.toEntity(cached);
             if (fromCache.getItems() == null) {
@@ -235,7 +287,7 @@ public class CartServiceImpl implements CartService {
                 cart.setItems(new ArrayList<>());
             }
             refreshMissingBookImages(cart);
-            writeCache(cart);
+            writeCacheSafely(cart);
             return cart;
         }
 
@@ -248,22 +300,47 @@ public class CartServiceImpl implements CartService {
                 .updatedAt(now)
                 .build();
         CartEntity saved = cartRepository.save(cart);
-        writeCache(saved);
+        writeCacheSafely(saved);
         return saved;
     }
 
     private void save(CartEntity cart) {
         CartEntity saved = cartRepository.save(cart);
-        writeCache(saved != null ? saved : cart);
+        writeCacheSafely(saved != null ? saved : cart);
     }
 
-    private void writeCache(CartEntity cart) {
-        CartCache cache = cartCacheMapper.toCache(cart);
-        redisTemplate.opsForValue().set(key(cart.getUserId()), cache, Duration.ofDays(ttlDays));
+    private CartCache readCacheSafely(UUID userId) {
+        try {
+            return redisTemplate.opsForValue().get(key(userId));
+        } catch (Exception e) {
+            log.warn("Redis read lỗi cho userId={}, fallback MySQL: {}", userId, e.getMessage());
+            return null;
+        }
+    }
+
+    private void writeCacheSafely(CartEntity cart) {
+        try {
+            CartCache cache = cartCacheMapper.toCache(cart);
+            redisTemplate.opsForValue().set(key(cart.getUserId()), cache, Duration.ofDays(ttlDays));
+        } catch (Exception e) {
+            log.warn("Redis write lỗi cho userId={}, bỏ qua: {}", cart.getUserId(), e.getMessage());
+        }
+    }
+
+    private void deleteCacheSafely(UUID userId) {
+        try {
+            redisTemplate.delete(key(userId));
+        } catch (Exception e) {
+            log.warn("Redis delete lỗi cho userId={}, bỏ qua: {}", userId, e.getMessage());
+        }
     }
 
     private String key(UUID userId) {
         return CART_KEY_PREFIX + userId;
+    }
+
+    private long elapsedMs(long startedAt) {
+        return Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
     }
 
     private void applyBookDetails(CartItemEntity item, BookResponse book) {
