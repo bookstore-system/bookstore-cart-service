@@ -1,8 +1,11 @@
 package com.notfound.cartservice.service;
 
 import com.notfound.cartservice.client.BookServiceClient;
+import com.notfound.cartservice.client.dto.BatchBookRequest;
+import com.notfound.cartservice.client.dto.BatchBookResponse;
 import com.notfound.cartservice.client.dto.BookApiResponse;
 import com.notfound.cartservice.client.dto.BookResponse;
+import com.notfound.cartservice.client.dto.BookServiceApiResponse;
 import com.notfound.cartservice.exception.BookOutOfStockException;
 import com.notfound.cartservice.exception.ResourceNotFoundException;
 import com.notfound.cartservice.mapper.CartCacheMapper;
@@ -142,6 +145,7 @@ class CartServiceImplUnitTest {
         api.setCode(200);
         api.setResult(book);
         when(bookServiceClient.getBook(BOOK_ID)).thenReturn(api);
+        stubBook(BOOK_ID, 10, new BigDecimal("50000"), "https://res.cloudinary.com/demo/book.jpg");
 
         AddToCartResponse resp = cartService.addToCart(USER_ID, new AddToCartRequest(BOOK_ID, 1));
 
@@ -204,7 +208,7 @@ class CartServiceImplUnitTest {
         when(valueOps.get(cartKey())).thenReturn(null);
         when(cartRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
         when(cartRepository.save(any(CartEntity.class))).thenAnswer(inv -> inv.getArgument(0));
-        stubBook(BOOK_ID, 1, new BigDecimal("50000"));
+        stubBook(BOOK_ID, 0, new BigDecimal("50000"));
 
         assertThrows(BookOutOfStockException.class, () ->
                 cartService.addToCart(USER_ID, new AddToCartRequest(BOOK_ID, 5)));
@@ -353,16 +357,39 @@ class CartServiceImplUnitTest {
     }
 
     private void stubBook(UUID bookId, int stock, BigDecimal price) {
+        stubBook(bookId, stock, price, null);
+    }
+
+    private void stubBook(UUID bookId, int stock, BigDecimal price, String imageUrl) {
         BookResponse book = BookResponse.builder()
                 .id(bookId)
                 .title("Sách Test")
                 .price(price)
                 .stock(stock)
+                .mainImageUrl(imageUrl)
                 .build();
         BookApiResponse api = new BookApiResponse();
         api.setCode(200);
         api.setResult(book);
         when(bookServiceClient.getBook(bookId)).thenReturn(api);
+
+        BatchBookResponse.BookItem item = BatchBookResponse.BookItem.builder()
+                .id(bookId)
+                .title("SÃ¡ch Test")
+                .price(price)
+                .thumbnailUrl(imageUrl)
+                .inStock(stock > 0)
+                .build();
+        BatchBookResponse batch = BatchBookResponse.builder()
+                .items(List.of(item))
+                .missingIds(List.of())
+                .build();
+        BookServiceApiResponse<BatchBookResponse> wrapped = BookServiceApiResponse.<BatchBookResponse>builder()
+                .code(200)
+                .message("OK")
+                .data(batch)
+                .build();
+        when(bookServiceClient.getBooksBatch(any(BatchBookRequest.class))).thenReturn(wrapped);
     }
 
     private FeignException.NotFound feignNotFound() {
