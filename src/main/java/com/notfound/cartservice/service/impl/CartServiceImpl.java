@@ -27,6 +27,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -150,7 +152,16 @@ public class CartServiceImpl implements CartService {
     @Transactional
     public void clearCart(UUID userId) {
         cartRepository.deleteByUserId(userId);
-        deleteCacheSafely(userId);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deleteCacheSafely(userId);
+                }
+            });
+        } else {
+            deleteCacheSafely(userId);
+        }
         log.info("Clear cart cho userId={}", userId);
     }
 
