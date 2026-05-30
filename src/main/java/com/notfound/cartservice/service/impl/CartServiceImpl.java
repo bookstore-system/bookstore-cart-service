@@ -150,7 +150,7 @@ public class CartServiceImpl implements CartService {
     @Transactional
     public void clearCart(UUID userId) {
         cartRepository.deleteByUserId(userId);
-        redisTemplate.delete(key(userId));
+        deleteCacheSafely(userId);
         log.info("Clear cart cho userId={}", userId);
     }
 
@@ -218,7 +218,7 @@ public class CartServiceImpl implements CartService {
     }
 
     private CartEntity loadOrCreate(UUID userId) {
-        CartCache cached = redisTemplate.opsForValue().get(key(userId));
+        CartCache cached = readCacheSafely(userId);
         if (cached != null) {
             CartEntity fromCache = cartCacheMapper.toEntity(cached);
             if (fromCache.getItems() == null) {
@@ -235,7 +235,7 @@ public class CartServiceImpl implements CartService {
                 cart.setItems(new ArrayList<>());
             }
             refreshMissingBookImages(cart);
-            writeCache(cart);
+            writeCacheSafely(cart);
             return cart;
         }
 
@@ -248,18 +248,39 @@ public class CartServiceImpl implements CartService {
                 .updatedAt(now)
                 .build();
         CartEntity saved = cartRepository.save(cart);
-        writeCache(saved);
+        writeCacheSafely(saved);
         return saved;
     }
 
     private void save(CartEntity cart) {
         CartEntity saved = cartRepository.save(cart);
-        writeCache(saved != null ? saved : cart);
+        writeCacheSafely(saved != null ? saved : cart);
     }
 
-    private void writeCache(CartEntity cart) {
-        CartCache cache = cartCacheMapper.toCache(cart);
-        redisTemplate.opsForValue().set(key(cart.getUserId()), cache, Duration.ofDays(ttlDays));
+    private CartCache readCacheSafely(UUID userId) {
+        try {
+            return redisTemplate.opsForValue().get(key(userId));
+        } catch (Exception e) {
+            log.warn("Redis read lỗi cho userId={}, fallback MySQL: {}", userId, e.getMessage());
+            return null;
+        }
+    }
+
+    private void writeCacheSafely(CartEntity cart) {
+        try {
+            CartCache cache = cartCacheMapper.toCache(cart);
+            redisTemplate.opsForValue().set(key(cart.getUserId()), cache, Duration.ofDays(ttlDays));
+        } catch (Exception e) {
+            log.warn("Redis write lỗi cho userId={}, bỏ qua: {}", cart.getUserId(), e.getMessage());
+        }
+    }
+
+    private void deleteCacheSafely(UUID userId) {
+        try {
+            redisTemplate.delete(key(userId));
+        } catch (Exception e) {
+            log.warn("Redis delete lỗi cho userId={}, bỏ qua: {}", userId, e.getMessage());
+        }
     }
 
     private String key(UUID userId) {
