@@ -1,8 +1,11 @@
 package com.notfound.cartservice.service.impl;
 
 import com.notfound.cartservice.client.BookServiceClient;
+import com.notfound.cartservice.client.dto.BatchBookRequest;
+import com.notfound.cartservice.client.dto.BatchBookResponse;
 import com.notfound.cartservice.client.dto.BookApiResponse;
 import com.notfound.cartservice.client.dto.BookResponse;
+import com.notfound.cartservice.client.dto.BookServiceApiResponse;
 import com.notfound.cartservice.exception.BookOutOfStockException;
 import com.notfound.cartservice.exception.ResourceNotFoundException;
 import com.notfound.cartservice.exception.ServiceUnavailableException;
@@ -34,7 +37,9 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -81,7 +86,7 @@ public class CartServiceImpl implements CartService {
                     cart.getCartId(), cart.lineItemCount());
 
             stageStartedAt = System.nanoTime();
-            BookResponse book = fetchBook(request.getBookId());
+            BookResponse book = fetchBookBatch(request.getBookId());
             log.info("{} stage=fetch_book_done traceId={} userId={} bookId={} durationMs={} stock={}",
                     ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
                     book.getStock());
@@ -117,8 +122,14 @@ public class CartServiceImpl implements CartService {
 
             cart.setUpdatedAt(Instant.now());
             stageStartedAt = System.nanoTime();
-            save(cart);
-            log.info("{} stage=save_done traceId={} userId={} bookId={} durationMs={} existingItem={} itemCount={}",
+            CartEntity saved = cartRepository.save(cart);
+            log.info("{} stage=save_db_done traceId={} userId={} bookId={} durationMs={} existingItem={} itemCount={}",
+                    ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
+                    existingItem, cart.lineItemCount());
+
+            stageStartedAt = System.nanoTime();
+            writeCacheSafely(saved != null ? saved : cart);
+            log.info("{} stage=write_cache_done traceId={} userId={} bookId={} durationMs={} existingItem={} itemCount={}",
                     ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
                     existingItem, cart.lineItemCount());
 
@@ -155,7 +166,7 @@ public class CartServiceImpl implements CartService {
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("CartItem", bookId));
 
-        BookResponse book = fetchBook(bookId);
+        BookResponse book = fetchBookBatch(bookId);
         validateStock(book, request.getQuantity());
 
         item.setQuantity(request.getQuantity());
@@ -216,10 +227,14 @@ public class CartServiceImpl implements CartService {
     public CartSnapshotResponse getSnapshot(UUID userId) {
         CartEntity cart = loadOrCreate(userId);
 
+        Map<UUID, BookResponse> booksById = fetchSnapshotBooksSafely(cart);
         List<CartSnapshotResponse.SnapshotItem> snapshotItems = new ArrayList<>();
         for (CartItemEntity item : cart.getItems()) {
             try {
-                BookResponse book = fetchBook(item.getBookId());
+                BookResponse book = booksById.get(item.getBookId());
+                if (book == null) {
+                    throw new ResourceNotFoundException("Book", item.getBookId());
+                }
                 BigDecimal price = BigDecimal.valueOf(book.getPriceAsDouble());
                 snapshotItems.add(CartSnapshotResponse.SnapshotItem.builder()
                         .bookId(book.getId())
@@ -357,10 +372,14 @@ public class CartServiceImpl implements CartService {
             return;
         }
         boolean changed = false;
+        Map<UUID, BookResponse> booksById = fetchSnapshotBooksSafely(cart);
         for (CartItemEntity item : cart.getItems()) {
             if (item.getBookImageUrl() == null || item.getBookImageUrl().isBlank()) {
                 try {
-                    BookResponse book = fetchBook(item.getBookId());
+                    BookResponse book = booksById.get(item.getBookId());
+                    if (book == null) {
+                        throw new ResourceNotFoundException("Book", item.getBookId());
+                    }
                     applyBookDetails(item, book);
                     changed = true;
                 } catch (Exception ex) {
@@ -392,6 +411,91 @@ public class CartServiceImpl implements CartService {
             }
             log.error("Lỗi khi gọi book-service bookId={}", bookId, re);
             throw new ServiceUnavailableException("book-service");
+        }
+    }
+
+    private BookResponse fetchBookBatch(UUID bookId) {
+        try {
+            BatchBookRequest request = BatchBookRequest.builder()
+                    .ids(List.of(bookId.toString()))
+                    .build();
+            BookServiceApiResponse<BatchBookResponse> resp = bookServiceClient.getBooksBatch(request);
+            BatchBookResponse batch = resp == null ? null : resp.getData();
+            BatchBookResponse.BookItem item = batch == null || batch.getItems() == null
+                    ? null
+                    : batch.getItems().stream()
+                    .filter(book -> bookId.equals(book.getId()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (item == null) {
+                throw new ResourceNotFoundException("Book", bookId);
+            }
+            if (Boolean.FALSE.equals(item.getInStock())) {
+                throw new BookOutOfStockException(bookId, 0);
+            }
+
+            return BookResponse.builder()
+                    .id(item.getId())
+                    .title(item.getTitle())
+                    .price(item.getPrice())
+                    .discountPrice(item.getDiscountPrice())
+                    .stock(null)
+                    .coverUrl(item.getThumbnailUrl())
+                    .mainImageUrl(item.getThumbnailUrl())
+                    .build();
+        } catch (FeignException.NotFound nf) {
+            throw new ResourceNotFoundException("Book", bookId);
+        } catch (FeignException fe) {
+            log.error("Feign error khi gọi book-service batch bookId={}: status={}", bookId, fe.status());
+            throw new ServiceUnavailableException("book-service");
+        } catch (RuntimeException re) {
+            if (re instanceof ResourceNotFoundException || re instanceof BookOutOfStockException) {
+                throw re;
+            }
+            log.error("Lỗi khi gọi book-service batch bookId={}", bookId, re);
+            throw new ServiceUnavailableException("book-service");
+        }
+    }
+
+    private Map<UUID, BookResponse> fetchSnapshotBooksSafely(CartEntity cart) {
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            return Map.of();
+        }
+
+        List<UUID> bookIds = cart.getItems().stream()
+                .map(CartItemEntity::getBookId)
+                .distinct()
+                .toList();
+
+        try {
+            BatchBookRequest request = BatchBookRequest.builder()
+                    .ids(bookIds.stream().map(UUID::toString).toList())
+                    .build();
+            BookServiceApiResponse<BatchBookResponse> resp = bookServiceClient.getBooksBatch(request);
+            BatchBookResponse batch = resp == null ? null : resp.getData();
+            if (batch == null || batch.getItems() == null) {
+                return Map.of();
+            }
+
+            Map<UUID, BookResponse> booksById = new HashMap<>();
+            for (BatchBookResponse.BookItem item : batch.getItems()) {
+                if (item != null && item.getId() != null) {
+                    booksById.put(item.getId(), BookResponse.builder()
+                            .id(item.getId())
+                            .title(item.getTitle())
+                            .price(item.getPrice())
+                            .discountPrice(item.getDiscountPrice())
+                            .stock(Boolean.FALSE.equals(item.getInStock()) ? 0 : null)
+                            .coverUrl(item.getThumbnailUrl())
+                            .mainImageUrl(item.getThumbnailUrl())
+                            .build());
+                }
+            }
+            return booksById;
+        } catch (RuntimeException ex) {
+            log.warn("Snapshot batch fetch lỗi cho userId={}, fallback cart cache: {}", cart.getUserId(), ex.getMessage());
+            return Map.of();
         }
     }
 
