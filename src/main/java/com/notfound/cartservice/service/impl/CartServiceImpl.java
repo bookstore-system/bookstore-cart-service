@@ -66,7 +66,7 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public CartResponse getCart(UUID userId) {
-        CartEntity cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId, true);
         return cartMapper.toCartResponse(cart);
     }
 
@@ -80,7 +80,7 @@ public class CartServiceImpl implements CartService {
 
         try {
             long stageStartedAt = System.nanoTime();
-            CartEntity cart = loadOrCreate(userId);
+            CartEntity cart = loadOrCreate(userId, false);
             log.info("{} stage=load_cart_done traceId={} userId={} bookId={} durationMs={} cartId={} itemCount={}",
                     ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
                     cart.getCartId(), cart.lineItemCount());
@@ -160,7 +160,7 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public UpdateCartResponse updateCartItem(UUID userId, UUID bookId, UpdateCartItemRequest request) {
-        CartEntity cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId, false);
         CartItemEntity item = cart.getItems().stream()
                 .filter(i -> bookId.equals(i.getBookId()))
                 .findFirst()
@@ -184,7 +184,7 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public RemoveCartResponse removeFromCart(UUID userId, UUID bookId) {
-        CartEntity cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId, false);
         boolean removed = cart.getItems().removeIf(i -> bookId.equals(i.getBookId()));
         if (!removed) {
             throw new ResourceNotFoundException("CartItem", bookId);
@@ -219,13 +219,13 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public boolean isCartEmpty(UUID userId) {
-        CartEntity cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId, false);
         return cart.getItems().isEmpty();
     }
 
     @Override
     public CartSnapshotResponse getSnapshot(UUID userId) {
-        CartEntity cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId, false);
 
         Map<UUID, BookResponse> booksById = fetchSnapshotBooksSafely(cart);
         List<CartSnapshotResponse.SnapshotItem> snapshotItems = new ArrayList<>();
@@ -274,24 +274,26 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public Long getCartItemCount(UUID userId) {
-        CartEntity cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId, false);
         return cart.lineItemCount();
     }
 
     @Override
     public boolean isBookInCart(UUID userId, UUID bookId) {
-        CartEntity cart = loadOrCreate(userId);
+        CartEntity cart = loadOrCreate(userId, false);
         return cart.getItems().stream().anyMatch(i -> bookId.equals(i.getBookId()));
     }
 
-    private CartEntity loadOrCreate(UUID userId) {
+    private CartEntity loadOrCreate(UUID userId, boolean refreshMissingImages) {
         CartCache cached = readCacheSafely(userId);
         if (cached != null) {
             CartEntity fromCache = cartCacheMapper.toEntity(cached);
             if (fromCache.getItems() == null) {
                 fromCache.setItems(new ArrayList<>());
             }
-            refreshMissingBookImages(fromCache);
+            if (refreshMissingImages) {
+                refreshMissingBookImages(fromCache);
+            }
             return fromCache;
         }
 
@@ -301,7 +303,9 @@ public class CartServiceImpl implements CartService {
             if (cart.getItems() == null) {
                 cart.setItems(new ArrayList<>());
             }
-            refreshMissingBookImages(cart);
+            if (refreshMissingImages) {
+                refreshMissingBookImages(cart);
+            }
             writeCacheSafely(cart);
             return cart;
         }
