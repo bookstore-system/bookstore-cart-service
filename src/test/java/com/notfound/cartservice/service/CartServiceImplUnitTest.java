@@ -21,10 +21,12 @@ import com.notfound.cartservice.model.dto.response.RemoveCartResponse;
 import com.notfound.cartservice.model.dto.response.UpdateCartResponse;
 import com.notfound.cartservice.model.entity.CartEntity;
 import com.notfound.cartservice.model.entity.CartItemEntity;
+import com.notfound.cartservice.repository.CartItemRepository;
 import com.notfound.cartservice.repository.CartRepository;
 import com.notfound.cartservice.service.impl.CartServiceImpl;
 import feign.FeignException;
 import feign.Request;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,6 +77,10 @@ class CartServiceImplUnitTest {
     BookServiceClient bookServiceClient;
     @Mock
     CartRepository cartRepository;
+    @Mock
+    CartItemRepository cartItemRepository;
+    @Mock
+    EntityManager entityManager;
 
     CartServiceImpl cartService;
 
@@ -84,6 +90,8 @@ class CartServiceImplUnitTest {
                 redisTemplate,
                 bookServiceClient,
                 cartRepository,
+                cartItemRepository,
+                entityManager,
                 new CartMapper(),
                 new CartCacheMapper()
         );
@@ -164,7 +172,9 @@ class CartServiceImplUnitTest {
         assertEquals(BOOK_ID, resp.getCartItem().getBookId());
         assertEquals(2, resp.getCartItem().getQuantity());
         assertEquals(1L, resp.getCartItemCount());
-        verify(cartRepository, Mockito.atLeast(2)).save(any(CartEntity.class));
+        verify(cartRepository).save(any(CartEntity.class));
+        verify(cartItemRepository).save(any(CartItemEntity.class));
+        verify(cartRepository).updateUpdatedAt(any(UUID.class), any(Instant.class));
         verify(valueOps, Mockito.atLeast(2)).set(eq(cartKey()), any(CartCache.class), any(java.time.Duration.class));
     }
 
