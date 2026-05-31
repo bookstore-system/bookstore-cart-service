@@ -21,9 +21,11 @@ import com.notfound.cartservice.model.dto.response.RemoveCartResponse;
 import com.notfound.cartservice.model.dto.response.UpdateCartResponse;
 import com.notfound.cartservice.model.entity.CartEntity;
 import com.notfound.cartservice.model.entity.CartItemEntity;
+import com.notfound.cartservice.repository.CartItemRepository;
 import com.notfound.cartservice.repository.CartRepository;
 import com.notfound.cartservice.service.CartService;
 import feign.FeignException;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,6 +57,8 @@ public class CartServiceImpl implements CartService {
     private final RedisTemplate<String, CartCache> redisTemplate;
     private final BookServiceClient bookServiceClient;
     private final CartRepository cartRepository;
+    private final CartItemRepository cartItemRepository;
+    private final EntityManager entityManager;
     private final CartMapper cartMapper;
     private final CartCacheMapper cartCacheMapper;
 
@@ -71,6 +75,7 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
+    @Transactional
     public AddToCartResponse addToCart(UUID userId, AddToCartRequest request) {
         String traceId = UUID.randomUUID().toString();
         long startedAt = System.nanoTime();
@@ -81,6 +86,7 @@ public class CartServiceImpl implements CartService {
         try {
             long stageStartedAt = System.nanoTime();
             CartEntity cart = loadOrCreate(userId, false);
+            detachCartGraph(cart);
             log.info("{} stage=load_cart_done traceId={} userId={} bookId={} durationMs={} cartId={} itemCount={}",
                     ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
                     cart.getCartId(), cart.lineItemCount());
@@ -122,13 +128,13 @@ public class CartServiceImpl implements CartService {
 
             cart.setUpdatedAt(Instant.now());
             stageStartedAt = System.nanoTime();
-            CartEntity saved = cartRepository.save(cart);
+            persistCartItemChange(cart, item, existingItem);
             log.info("{} stage=save_db_done traceId={} userId={} bookId={} durationMs={} existingItem={} itemCount={}",
                     ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
                     existingItem, cart.lineItemCount());
 
             stageStartedAt = System.nanoTime();
-            writeCacheSafely(saved != null ? saved : cart);
+            writeCacheSafely(cart);
             log.info("{} stage=write_cache_done traceId={} userId={} bookId={} durationMs={} existingItem={} itemCount={}",
                     ADD_TO_CART_LOG_KEY, traceId, userId, request.getBookId(), elapsedMs(stageStartedAt),
                     existingItem, cart.lineItemCount());
@@ -159,8 +165,10 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
+    @Transactional
     public UpdateCartResponse updateCartItem(UUID userId, UUID bookId, UpdateCartItemRequest request) {
         CartEntity cart = loadOrCreate(userId, false);
+        detachCartGraph(cart);
         CartItemEntity item = cart.getItems().stream()
                 .filter(i -> bookId.equals(i.getBookId()))
                 .findFirst()
@@ -173,7 +181,7 @@ public class CartServiceImpl implements CartService {
         applyBookDetails(item, book);
 
         cart.setUpdatedAt(Instant.now());
-        save(cart);
+        persistCartItemChange(cart, item, true);
         log.info("Update bookId={} qty={} cho userId={}", bookId, request.getQuantity(), userId);
 
         return UpdateCartResponse.builder()
@@ -183,15 +191,19 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
+    @Transactional
     public RemoveCartResponse removeFromCart(UUID userId, UUID bookId) {
         CartEntity cart = loadOrCreate(userId, false);
+        detachCartGraph(cart);
         boolean removed = cart.getItems().removeIf(i -> bookId.equals(i.getBookId()));
         if (!removed) {
             throw new ResourceNotFoundException("CartItem", bookId);
         }
 
         cart.setUpdatedAt(Instant.now());
-        save(cart);
+        cartItemRepository.deleteByCartIdAndBookId(cart.getCartId(), bookId);
+        cartRepository.updateUpdatedAt(cart.getCartId(), cart.getUpdatedAt());
+        writeCacheSafely(cart);
         log.info("Remove bookId={} khỏi cart của userId={}", bookId, userId);
 
         return RemoveCartResponse.builder()
@@ -323,9 +335,47 @@ public class CartServiceImpl implements CartService {
         return saved;
     }
 
-    private void save(CartEntity cart) {
-        CartEntity saved = cartRepository.save(cart);
-        writeCacheSafely(saved != null ? saved : cart);
+    private void persistCartItemChange(CartEntity cart, CartItemEntity item, boolean existingItem) {
+        if (existingItem) {
+            updateCartItemRow(item);
+        } else {
+            item.setCart(cartRepository.getReferenceById(cart.getCartId()));
+            CartItemEntity savedItem = cartItemRepository.save(item);
+            item.setCart(cart);
+            if (savedItem != null) {
+                item.setItemId(savedItem.getItemId());
+            }
+        }
+        cartRepository.updateUpdatedAt(cart.getCartId(), cart.getUpdatedAt());
+    }
+
+    private void updateCartItemRow(CartItemEntity item) {
+        cartItemRepository.updateItemDetails(
+                item.getItemId(),
+                item.getQuantity(),
+                item.getBookTitle(),
+                item.getBookIsbn(),
+                item.getBookPrice(),
+                item.getBookDiscountPrice(),
+                item.getBookImageUrl(),
+                item.getStockQuantity()
+        );
+    }
+
+    private void detachCartGraph(CartEntity cart) {
+        if (cart == null) {
+            return;
+        }
+        if (cart.getItems() != null) {
+            cart.getItems().forEach(item -> {
+                if (item != null && entityManager.contains(item)) {
+                    entityManager.detach(item);
+                }
+            });
+        }
+        if (entityManager.contains(cart)) {
+            entityManager.detach(cart);
+        }
     }
 
     private CartCache readCacheSafely(UUID userId) {
@@ -375,7 +425,7 @@ public class CartServiceImpl implements CartService {
         if (cart.getItems() == null || cart.getItems().isEmpty()) {
             return;
         }
-        boolean changed = false;
+        List<CartItemEntity> changedItems = new ArrayList<>();
         Map<UUID, BookResponse> booksById = fetchSnapshotBooksSafely(cart);
         for (CartItemEntity item : cart.getItems()) {
             if (item.getBookImageUrl() == null || item.getBookImageUrl().isBlank()) {
@@ -385,14 +435,15 @@ public class CartServiceImpl implements CartService {
                         throw new ResourceNotFoundException("Book", item.getBookId());
                     }
                     applyBookDetails(item, book);
-                    changed = true;
+                    changedItems.add(item);
                 } catch (Exception ex) {
                     log.warn("Không refresh được ảnh cho bookId={}: {}", item.getBookId(), ex.getMessage());
                 }
             }
         }
-        if (changed) {
-            save(cart);
+        if (!changedItems.isEmpty()) {
+            changedItems.forEach(this::updateCartItemRow);
+            writeCacheSafely(cart);
         }
     }
 
