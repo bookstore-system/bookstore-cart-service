@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -428,23 +429,60 @@ public class CartServiceImpl implements CartService {
         List<CartItemEntity> changedItems = new ArrayList<>();
         Map<UUID, BookResponse> booksById = fetchSnapshotBooksSafely(cart);
         for (CartItemEntity item : cart.getItems()) {
-            if (item.getBookImageUrl() == null || item.getBookImageUrl().isBlank()) {
-                try {
-                    BookResponse book = booksById.get(item.getBookId());
-                    if (book == null) {
-                        throw new ResourceNotFoundException("Book", item.getBookId());
-                    }
-                    applyBookDetails(item, book);
-                    changedItems.add(item);
-                } catch (Exception ex) {
-                    log.warn("Không refresh được ảnh cho bookId={}: {}", item.getBookId(), ex.getMessage());
+            try {
+                BookResponse book = booksById.get(item.getBookId());
+                if (book == null) {
+                    throw new ResourceNotFoundException("Book", item.getBookId());
                 }
+                if (applyLatestBookDetails(item, book)) {
+                    changedItems.add(item);
+                }
+            } catch (Exception ex) {
+                log.warn("Không refresh được thông tin sách cho bookId={}: {}", item.getBookId(), ex.getMessage());
             }
         }
         if (!changedItems.isEmpty()) {
             changedItems.forEach(this::updateCartItemRow);
             writeCacheSafely(cart);
         }
+    }
+
+    private boolean applyLatestBookDetails(CartItemEntity item, BookResponse book) {
+        boolean changed = false;
+        if (book.getTitle() != null && !Objects.equals(item.getBookTitle(), book.getTitle())) {
+            item.setBookTitle(book.getTitle());
+            changed = true;
+        }
+        if (book.getIsbn() != null && !Objects.equals(item.getBookIsbn(), book.getIsbn())) {
+            item.setBookIsbn(book.getIsbn());
+            changed = true;
+        }
+
+        if (book.getPrice() != null) {
+            Double price = book.getPriceAsDouble();
+            if (!Objects.equals(item.getBookPrice(), price)) {
+                item.setBookPrice(price);
+                changed = true;
+            }
+        }
+
+        Double discountPrice = book.getDiscountPriceAsDouble();
+        if (!Objects.equals(item.getBookDiscountPrice(), discountPrice)) {
+            item.setBookDiscountPrice(discountPrice);
+            changed = true;
+        }
+
+        String imageUrl = book.resolveImageUrl();
+        if (imageUrl != null && !imageUrl.isBlank() && !Objects.equals(item.getBookImageUrl(), imageUrl)) {
+            item.setBookImageUrl(imageUrl);
+            changed = true;
+        }
+
+        if (!Objects.equals(item.getStockQuantity(), book.getStock())) {
+            item.setStockQuantity(book.getStock());
+            changed = true;
+        }
+        return changed;
     }
 
     private BookResponse fetchBook(UUID bookId) {
