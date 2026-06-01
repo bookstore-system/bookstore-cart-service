@@ -1,6 +1,7 @@
 package com.notfound.cartservice.client.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,6 +31,8 @@ public class BatchBookResponse {
         private BigDecimal price;
         private BigDecimal discountPrice;
         private String thumbnailUrl;
+        @JsonAlias({"stock", "stock_quantity"})
+        private Integer stockQuantity;
         private Boolean inStock;
     }
 }
