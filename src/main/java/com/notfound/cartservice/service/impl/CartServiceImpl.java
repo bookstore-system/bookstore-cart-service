@@ -183,6 +183,7 @@ public class CartServiceImpl implements CartService {
 
         cart.setUpdatedAt(Instant.now());
         persistCartItemChange(cart, item, true);
+        writeCacheSafely(cart);
         log.info("Update bookId={} qty={} cho userId={}", bookId, request.getQuantity(), userId);
 
         return UpdateCartResponse.builder()
@@ -533,7 +534,7 @@ public class CartServiceImpl implements CartService {
                     .title(item.getTitle())
                     .price(item.getPrice())
                     .discountPrice(item.getDiscountPrice())
-                    .stock(null)
+                    .stock(item.getStockQuantity())
                     .coverUrl(item.getThumbnailUrl())
                     .mainImageUrl(item.getThumbnailUrl())
                     .build();
@@ -579,7 +580,9 @@ public class CartServiceImpl implements CartService {
                             .title(item.getTitle())
                             .price(item.getPrice())
                             .discountPrice(item.getDiscountPrice())
-                            .stock(Boolean.FALSE.equals(item.getInStock()) ? 0 : null)
+                            .stock(item.getStockQuantity() != null
+                                    ? item.getStockQuantity()
+                                    : Boolean.FALSE.equals(item.getInStock()) ? 0 : null)
                             .coverUrl(item.getThumbnailUrl())
                             .mainImageUrl(item.getThumbnailUrl())
                             .build());
