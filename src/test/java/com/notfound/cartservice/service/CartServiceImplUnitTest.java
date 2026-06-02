@@ -56,8 +56,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -276,6 +278,33 @@ class CartServiceImplUnitTest {
 
         verify(cartRepository).deleteByUserId(USER_ID);
         verify(redisTemplate).delete(cartKey());
+    }
+
+    @Test
+    void clearCartItems_removesOnlySelectedItemsAndUpdatesCache() {
+        UUID unselectedBookId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        CartEntity cart = cartWithItem(BOOK_ID, 2);
+        cart.getItems().add(CartItemEntity.builder()
+                .itemId(UUID.randomUUID())
+                .cart(cart)
+                .bookId(unselectedBookId)
+                .quantity(1)
+                .bookPrice(50000.0)
+                .addedAt(Instant.now())
+                .build());
+        when(valueOps.get(cartKey())).thenReturn(null);
+        when(cartRepository.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
+
+        cartService.clearCartItems(USER_ID, List.of(BOOK_ID));
+
+        assertEquals(1, cart.getItems().size());
+        assertEquals(unselectedBookId, cart.getItems().get(0).getBookId());
+        verify(cartItemRepository).deleteByCartIdAndBookIdIn(
+                eq(CART_ID),
+                argThat(ids -> ids.size() == 1 && ids.contains(BOOK_ID))
+        );
+        verify(cartRepository).updateUpdatedAt(eq(CART_ID), any(Instant.class));
+        verify(valueOps, atLeast(2)).set(eq(cartKey()), any(CartCache.class), any(java.time.Duration.class));
     }
 
     @Test

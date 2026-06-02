@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Slf4j
@@ -49,7 +51,12 @@ public class CartClearCommandConsumer {
         log.info("Received {} sagaId={} userId={} eventId={}",
                 sagaProperties.getRkCartClearCommand(), message.getSagaId(), userId, message.getEventId());
 
-        cartService.clearCart(userId);
+        List<UUID> bookIds = extractBookIds(message);
+        if (bookIds.isEmpty()) {
+            cartService.clearCart(userId);
+        } else {
+            cartService.clearCartItems(userId, bookIds);
+        }
         cartEventPublisher.publishCartCleared(message);
 
         log.info("Handled {} sagaId={} userId={}",
@@ -61,5 +68,36 @@ public class CartClearCommandConsumer {
             throw new IllegalArgumentException("userId is required for cart.clear.command");
         }
         return message.getUserId();
+    }
+
+    private static List<UUID> extractBookIds(SagaMessage message) {
+        if (message == null) {
+            return List.of();
+        }
+        List<UUID> topLevelBookIds = toUuidList(message.getBookIds());
+        if (!topLevelBookIds.isEmpty()) {
+            return topLevelBookIds;
+        }
+        if (message.getPayload() == null) {
+            return List.of();
+        }
+        Object value = message.getPayload().get("bookIds");
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return toUuidList(list);
+    }
+
+    private static List<UUID> toUuidList(List<?> bookIds) {
+        if (bookIds == null || bookIds.isEmpty()) {
+            return List.of();
+        }
+        return bookIds.stream()
+                .filter(Objects::nonNull)
+                .map(Object::toString)
+                .filter(bookId -> !bookId.isBlank())
+                .distinct()
+                .map(UUID::fromString)
+                .toList();
     }
 }

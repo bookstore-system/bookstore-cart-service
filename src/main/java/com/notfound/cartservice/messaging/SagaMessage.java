@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,5 +29,6 @@ public class SagaMessage {
     private LocalDateTime occurredAt;
     private UUID orderId;
     private UUID userId;
+    private List<String> bookIds;
     private Map<String, Object> payload;
 }

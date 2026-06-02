@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
+import java.util.Collection;
 
 @Repository
 public interface CartItemRepository extends JpaRepository<CartItemEntity, UUID> {
@@ -44,4 +45,12 @@ public interface CartItemRepository extends JpaRepository<CartItemEntity, UUID> 
             where item.cart.cartId = :cartId and item.bookId = :bookId
             """)
     int deleteByCartIdAndBookId(@Param("cartId") UUID cartId, @Param("bookId") UUID bookId);
+
+    @Modifying
+    @Transactional
+    @Query("""
+            delete from CartItemEntity item
+            where item.cart.cartId = :cartId and item.bookId in :bookIds
+            """)
+    int deleteByCartIdAndBookIdIn(@Param("cartId") UUID cartId, @Param("bookIds") Collection<UUID> bookIds);
 }

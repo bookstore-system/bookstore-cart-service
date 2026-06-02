@@ -9,6 +9,7 @@ import com.notfound.cartservice.model.dto.response.RemoveCartResponse;
 import com.notfound.cartservice.model.dto.response.UpdateCartResponse;
 
 import java.util.UUID;
+import java.util.List;
 
 public interface CartService {
 
@@ -21,6 +22,8 @@ public interface CartService {
     RemoveCartResponse removeFromCart(UUID userId, UUID bookId);
 
     void clearCart(UUID userId);
+
+    void clearCartItems(UUID userId, List<UUID> bookIds);
 
     boolean isCartEmpty(UUID userId);
 
