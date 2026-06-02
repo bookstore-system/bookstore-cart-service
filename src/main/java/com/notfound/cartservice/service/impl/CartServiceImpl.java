@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -229,6 +230,29 @@ public class CartServiceImpl implements CartService {
             deleteCacheSafely(userId);
         }
         log.info("Clear cart cho userId={}", userId);
+    }
+
+    @Override
+    @Transactional
+    public void clearCartItems(UUID userId, List<UUID> bookIds) {
+        if (bookIds == null || bookIds.isEmpty()) {
+            return;
+        }
+
+        CartEntity cart = loadOrCreate(userId, false);
+        detachCartGraph(cart);
+        Set<UUID> targetBookIds = Set.copyOf(bookIds);
+        boolean removed = cart.getItems().removeIf(item -> targetBookIds.contains(item.getBookId()));
+        if (!removed) {
+            log.info("No checkout cart items to clear for userId={} bookIds={}", userId, targetBookIds);
+            return;
+        }
+
+        cart.setUpdatedAt(Instant.now());
+        cartItemRepository.deleteByCartIdAndBookIdIn(cart.getCartId(), targetBookIds);
+        cartRepository.updateUpdatedAt(cart.getCartId(), cart.getUpdatedAt());
+        writeCacheSafely(cart);
+        log.info("Clear selected cart items for userId={} bookIds={}", userId, targetBookIds);
     }
 
     @Override

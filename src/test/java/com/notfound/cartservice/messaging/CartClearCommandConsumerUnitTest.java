@@ -14,6 +14,8 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -31,6 +33,7 @@ class CartClearCommandConsumerUnitTest {
     private static final UUID ORDER_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final UUID EVENT_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID CORRELATION_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final UUID BOOK_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
 
     @Mock
     private CartService cartService;
@@ -60,6 +63,30 @@ class CartClearCommandConsumerUnitTest {
         consumer.onCartClearCommand(rabbitMessage);
 
         verify(cartService).clearCart(USER_ID);
+        verify(cartEventPublisher).publishCartCleared(command);
+    }
+
+    @Test
+    void onCartClearCommand_withBookIds_clearsSelectedItemsAndPublishesEvent() throws Exception {
+        SagaMessage command = sampleCommand();
+        command.setPayload(Map.of("bookIds", List.of(BOOK_ID.toString())));
+        Message rabbitMessage = rabbitMessage(command);
+
+        consumer.onCartClearCommand(rabbitMessage);
+
+        verify(cartService).clearCartItems(USER_ID, List.of(BOOK_ID));
+        verify(cartEventPublisher).publishCartCleared(command);
+    }
+
+    @Test
+    void onCartClearCommand_withTopLevelBookIds_clearsSelectedItemsAndPublishesEvent() throws Exception {
+        SagaMessage command = sampleCommand();
+        command.setBookIds(List.of(BOOK_ID.toString()));
+        Message rabbitMessage = rabbitMessage(command);
+
+        consumer.onCartClearCommand(rabbitMessage);
+
+        verify(cartService).clearCartItems(USER_ID, List.of(BOOK_ID));
         verify(cartEventPublisher).publishCartCleared(command);
     }
 
